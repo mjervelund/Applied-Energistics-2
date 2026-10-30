@@ -28,6 +28,7 @@ import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.MEStorage;
 import appeng.core.localization.GuiText;
 import appeng.me.service.CraftingService;
+import appeng.me.storage.ChangeTrackedStorage;
 
 /**
  * The storage exposed by the crafting service. It does two things:
@@ -38,7 +39,7 @@ import appeng.me.service.CraftingService;
  */
 public class CraftingServiceStorage implements IStorageProvider {
     private final CraftingService craftingService;
-    private final MEStorage inventory = new MEStorage() {
+    private final MEStorage inventory = new ChangeTrackedStorage() {
         @Override
         public boolean isPreferredStorageFor(AEKey key, IActionSource source) {
             return true;
