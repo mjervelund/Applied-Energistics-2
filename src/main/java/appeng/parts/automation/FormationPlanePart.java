@@ -52,7 +52,6 @@ import appeng.api.util.IConfigManagerBuilder;
 import appeng.core.definitions.AEItems;
 import appeng.helpers.IConfigInvHost;
 import appeng.helpers.IPriorityHost;
-import appeng.me.storage.ChangeTrackedStorage;
 import appeng.menu.ISubMenu;
 import appeng.menu.MenuOpener;
 import appeng.menu.implementations.FormationPlaneMenu;
@@ -255,7 +254,7 @@ public class FormationPlanePart extends UpgradeablePart implements IStorageProvi
     /**
      * Models the block adjacent to this formation plane as storage.
      */
-    class InWorldStorage implements ChangeTrackedStorage {
+    class InWorldStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
             if (filter != null && !filter.matchesFilter(what, filterMode)) {

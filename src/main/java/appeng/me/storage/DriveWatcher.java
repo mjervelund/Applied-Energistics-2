@@ -23,9 +23,8 @@ import appeng.api.networking.security.IActionSource;
 import appeng.api.stacks.AEKey;
 import appeng.api.storage.cells.CellState;
 import appeng.api.storage.cells.StorageCell;
-import appeng.me.cells.BasicCellInventory;
 
-public class DriveWatcher extends MEInventoryHandler implements ChangeTrackedStorage {
+public class DriveWatcher extends MEInventoryHandler {
 
     private CellState oldStatus = CellState.EMPTY;
     private final Runnable activityCallback;
@@ -38,12 +37,6 @@ public class DriveWatcher extends MEInventoryHandler implements ChangeTrackedSto
 
     public CellState getStatus() {
         return getCell().getStatus();
-    }
-
-    @Override
-    public boolean isChangeTracked() {
-        // Cells in a drive can only be changed through the grid. Other cell types might be backed by something else.
-        return getCell() instanceof BasicCellInventory;
     }
 
     public StorageCell getCell() {
