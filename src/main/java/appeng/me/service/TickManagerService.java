@@ -197,6 +197,12 @@ public class TickManagerService implements ITickManager, IGridServiceProvider {
             return false;
         }
 
+        // Already queued to tick on the next tick: re-queueing would change nothing, but costs a linear scan of the
+        // queue. This happens a lot when a device is alerted several times per tick.
+        if (tt.getCurrentRate() == 1 && this.awake.get(node) == tt) {
+            return true;
+        }
+
         // set to awake, this is for sanity.
         this.sleeping.remove(node);
         this.awake.put(node, tt);
