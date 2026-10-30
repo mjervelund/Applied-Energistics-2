@@ -54,6 +54,35 @@ public class GridNodeTickingTest extends AbstractGridNodeTest {
     }
 
     /**
+     * Alerting a device several times before it ticks still ticks it exactly once on the next tick.
+     */
+    @Test
+    void testRepeatedAlertsTickOnce() {
+        var timesSinceLastTick = new ArrayList<Integer>();
+        var node = makeTickingNode(
+                new TickingRequest(10, 10, true),
+                (tickingNode, ticksSinceLastCall) -> {
+                    timesSinceLastTick.add(ticksSinceLastCall);
+                    return TickRateModulation.SLEEP;
+                });
+
+        runTick(node.getGrid(), 10);
+        var tickManager = node.getGrid().getTickManager();
+        for (int i = 0; i < 3; i++) {
+            assertThat(tickManager.alertDevice(node)).isTrue();
+            assertNodeIsAwake(node);
+        }
+        runTick(node.getGrid(), 1);
+        assertThat(timesSinceLastTick).containsExactly(11);
+        assertNodeIsAsleep(node);
+
+        // And it can be alerted again afterwards
+        tickManager.alertDevice(node);
+        runTick(node.getGrid(), 1);
+        assertThat(timesSinceLastTick).containsExactly(11, 1);
+    }
+
+    /**
      * Tests the sleeping behavior of nodes.
      */
     @Nested
