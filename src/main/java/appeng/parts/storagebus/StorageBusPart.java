@@ -71,7 +71,6 @@ import appeng.helpers.IConfigInvHost;
 import appeng.helpers.IPriorityHost;
 import appeng.helpers.InterfaceLogicHost;
 import appeng.me.helpers.MachineSource;
-import appeng.me.storage.ChangeTrackedStorage;
 import appeng.me.storage.CompositeStorage;
 import appeng.me.storage.ITickingMonitor;
 import appeng.me.storage.MEInventoryHandler;
@@ -270,12 +269,7 @@ public class StorageBusPart extends UpgradeablePart
         }
 
         if (this.monitor != null) {
-            var result = this.monitor.onTick();
-            if (result == TickRateModulation.URGENT) {
-                // The monitor found changes in the external inventory
-                invalidateGridInventoryCache();
-            }
-            return result;
+            return this.monitor.onTick();
         }
 
         return this.updateStatus == PendingUpdateStatus.SLOW_UPDATE ? TickRateModulation.IDLE
@@ -306,7 +300,6 @@ public class StorageBusPart extends UpgradeablePart
     private void onCapabilityInvalidation() {
         // Immediately replace the inventory by a null inventory to avoid any further operations on the old inventory.
         this.handler.setDelegate(NullInventory.of());
-        invalidateGridInventoryCache();
         // TODO: potentially set handlerDescription to null?
         // Enqueue update.
         this.scheduleUpdate();
@@ -316,9 +309,6 @@ public class StorageBusPart extends UpgradeablePart
         if (isClientSide()) {
             return; // Part is not part of level yet or its client-side
         }
-
-        // The target and the filter settings below change what the grid sees
-        invalidateGridInventoryCache();
 
         MEStorage foundMonitor = null;
         Map<AEKeyType, MEStorage> foundExternalApi = Collections.emptyMap();
@@ -436,10 +426,6 @@ public class StorageBusPart extends UpgradeablePart
         }
     }
 
-    private void invalidateGridInventoryCache() {
-        getMainNode().ifPresent(grid -> grid.getStorageService().invalidateCache());
-    }
-
     private void invalidateOnExternalStorageChange() {
         getMainNode().ifPresent((grid, node) -> {
             grid.getTickManager().alertDevice(node);
@@ -487,19 +473,9 @@ public class StorageBusPart extends UpgradeablePart
     /**
      * This inventory forwards to the actual external inventory and allows the inventory to be swapped out underneath.
      */
-    private static class StorageBusInventory extends MEInventoryHandler implements ChangeTrackedStorage {
+    private static class StorageBusInventory extends MEInventoryHandler {
         public StorageBusInventory(MEStorage inventory) {
             super(inventory);
-        }
-
-        /**
-         * External inventories are watched by the storage bus, which tells the grid about changes. Other ME storage
-         * (i.e. an interface on another grid) is not.
-         */
-        @Override
-        public boolean isChangeTracked() {
-            var delegate = getDelegate();
-            return delegate instanceof CompositeStorage || delegate instanceof NullInventory;
         }
 
         @Override
