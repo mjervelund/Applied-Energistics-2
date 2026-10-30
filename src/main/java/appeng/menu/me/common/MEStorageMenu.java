@@ -77,6 +77,7 @@ import appeng.core.network.clientbound.MEInventoryUpdatePacket;
 import appeng.core.network.clientbound.SetLinkStatusPacket;
 import appeng.core.network.serverbound.MEInteractionPacket;
 import appeng.helpers.InventoryAction;
+import appeng.hooks.ticking.TickHandler;
 import appeng.me.helpers.ActionHostEnergySource;
 import appeng.menu.AEBaseMenu;
 import appeng.menu.SlotSemantics;
@@ -150,6 +151,14 @@ public class MEStorageMenu extends AEBaseMenu
      */
     private Set<AEKey> previousCraftables = Collections.emptySet();
     private KeyCounter previousAvailableStacks = new KeyCounter();
+
+    /**
+     * Diffing the grid inventory against what the client knows is O(grid size), so it's only done every few ticks
+     * unless the player just interacted with the grid.
+     */
+    private static final int INVENTORY_UPDATE_INTERVAL = 5;
+    private long lastInventoryUpdateTick = Long.MIN_VALUE;
+    private boolean inventoryUpdateRequested = true;
 
     public MEStorageMenu(MenuType<?> menuType, int id, Inventory ip, ITerminalHost host) {
         this(menuType, id, ip, host, true);
@@ -249,6 +258,14 @@ public class MEStorageMenu extends AEBaseMenu
                 this.searchKeyTypes = new SyncedKeyTypes(keyTypeSelectionHost.getKeyTypeSelection().enabled());
             }
 
+            var currentTick = TickHandler.instance().getCurrentTick();
+            if (!inventoryUpdateRequested && currentTick - lastInventoryUpdateTick < INVENTORY_UPDATE_INTERVAL) {
+                super.broadcastChanges();
+                return;
+            }
+            inventoryUpdateRequested = false;
+            lastInventoryUpdateTick = currentTick;
+
             var craftables = getCraftablesFromGrid();
             var availableStacks = storage.getAvailableStacks();
 
@@ -298,6 +315,14 @@ public class MEStorageMenu extends AEBaseMenu
                 getGui().run();
             }
         }
+    }
+
+    /**
+     * Send the grid inventory changes on the next {@link #broadcastChanges()} instead of waiting for the update
+     * interval.
+     */
+    protected final void requestInventoryUpdate() {
+        inventoryUpdateRequested = true;
     }
 
     protected boolean showsCraftables() {
@@ -376,6 +401,9 @@ public class MEStorageMenu extends AEBaseMenu
             ClientPacketDistributor.sendToServer(message);
             return;
         }
+
+        // Show the result of the player's action right away
+        requestInventoryUpdate();
 
         // Do not allow interactions if there's no monitor or no power
         if (!canInteractWithGrid()) {
@@ -670,6 +698,8 @@ public class MEStorageMenu extends AEBaseMenu
      */
     @Override
     protected int transferStackToMenu(ItemStack input) {
+        requestInventoryUpdate();
+
         if (!canInteractWithGrid()) {
             // Allow non-grid slots to be use
             return super.transferStackToMenu(input);
