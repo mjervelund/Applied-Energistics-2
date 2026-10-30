@@ -51,7 +51,6 @@ import appeng.api.config.YesNo;
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.crafting.PatternDetailsHelper;
 import appeng.api.ids.AEComponents;
-import appeng.api.implementations.blockentities.ICraftingMachine;
 import appeng.api.implementations.blockentities.PatternContainerGroup;
 import appeng.api.inventories.InternalInventory;
 import appeng.api.networking.GridFlags;
@@ -308,9 +307,6 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
             return false;
         }
 
-        var be = host.getBlockEntity();
-        var level = be.getLevel();
-
         if (getCraftingLockedReason() != LockCraftingMode.NONE) {
             return false;
         }
@@ -321,10 +317,9 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
 
         // Push to crafting machines first
         for (var direction : getActiveSides()) {
-            var adjPos = be.getBlockPos().relative(direction);
             var adjBeSide = direction.getOpposite();
 
-            var craftingMachine = ICraftingMachine.of(level, adjPos, adjBeSide);
+            var craftingMachine = getTargetCache(direction).findCraftingMachine();
             if (craftingMachine != null && craftingMachine.acceptsPlans()) {
                 if (craftingMachine.pushPattern(patternDetails, inputHolder, adjBeSide)) {
                     onPushPatternSuccess(patternDetails);
@@ -466,8 +461,7 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
         return this.configManager.getSetting(Settings.BLOCKING_MODE) == YesNo.YES;
     }
 
-    @Nullable
-    private PatternProviderTarget findAdapter(Direction side) {
+    private PatternProviderTargetCache getTargetCache(Direction side) {
         if (targetCaches[side.get3DDataValue()] == null) {
             var thisBe = host.getBlockEntity();
             targetCaches[side.get3DDataValue()] = new PatternProviderTargetCache(
@@ -476,8 +470,12 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
                     side.getOpposite(),
                     actionSource);
         }
+        return targetCaches[side.get3DDataValue()];
+    }
 
-        return targetCaches[side.get3DDataValue()].find();
+    @Nullable
+    private PatternProviderTarget findAdapter(Direction side) {
+        return getTargetCache(side).find();
     }
 
     private boolean adapterAcceptsAll(PatternProviderTarget target, KeyCounter[] inputHolder) {
