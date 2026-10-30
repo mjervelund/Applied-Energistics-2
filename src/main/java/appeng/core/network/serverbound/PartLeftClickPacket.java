@@ -42,6 +42,13 @@ public record PartLeftClickPacket(BlockHitResult hitResult, boolean alternateUse
 
     @Override
     public void handleOnServer(ServerPlayer player) {
+        // The position comes from the client: only accept clicks on loaded blocks in reach, like vanilla's block
+        // actions, so this can't load chunks or click parts (e.g. extract from conversion monitors) far away.
+        var pos = hitResult.getBlockPos();
+        if (!player.level().isLoaded(pos) || !player.isWithinBlockInteractionRange(pos, 1.0)) {
+            return;
+        }
+
         // Fire event on the server to give protection mods a chance to cancel the interaction
         var evt = CommonHooks.onLeftClickBlock(player, hitResult.getBlockPos(), hitResult.getDirection(),
                 ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK);
