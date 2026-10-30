@@ -3,11 +3,13 @@ package appeng.client;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -255,32 +257,68 @@ public class AEClientboundPacketHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ExportedGridContent.class);
 
+    /**
+     * Grid exports are written to the game directory on request of the server, so a server could otherwise write
+     * unlimited data there. Only accept chunks of the export a FIRST_CHUNK started, up to this many bytes.
+     */
+    private static final long MAX_GRID_EXPORT_BYTES = 256L * 1024 * 1024;
+
+    @Nullable
+    private GridExportInProgress gridExportInProgress;
+
+    private record GridExportInProgress(int serialNumber, Path tempPath, Path finalPath, long[] bytesWritten) {
+    }
+
     public void handleExportedGridContent(ExportedGridContent packet, Minecraft minecraft, Player player) {
-        var saveDir = Minecraft.getInstance().gameDirectory.toPath();
-        String filename;
-        var spServer = Minecraft.getInstance().getSingleplayerServer();
-        var connection = Minecraft.getInstance().getConnection();
-        if (spServer != null) {
-            saveDir = spServer.getServerDirectory();
-            filename = "ae2_grid_";
-        } else if (connection != null) {
-            filename = "ae2_grid_from_server_";
+        GridExportInProgress export;
+        if (packet.contentType() == ExportedGridContent.ContentType.FIRST_CHUNK) {
+            var saveDir = Minecraft.getInstance().gameDirectory.toPath();
+            String filename;
+            var spServer = Minecraft.getInstance().getSingleplayerServer();
+            var connection = Minecraft.getInstance().getConnection();
+            if (spServer != null) {
+                saveDir = spServer.getServerDirectory();
+                filename = "ae2_grid_";
+            } else if (connection != null) {
+                filename = "ae2_grid_from_server_";
+            } else {
+                LOG.error("Ignoring grid export without a connection to a server.");
+                return;
+            }
+
+            saveDir = saveDir.toAbsolutePath().normalize();
+
+            filename += packet.serialNumber() + "_" + TIMESTAMP_FORMATTER.format(LocalDateTime.now()) + ".zip";
+
+            abandonGridExport();
+            export = new GridExportInProgress(packet.serialNumber(), saveDir.resolve(filename + ".tmp"),
+                    saveDir.resolve(filename), new long[1]);
+            gridExportInProgress = export;
         } else {
-            LOG.error("Ignoring grid export without a connection to a server.");
-            return;
+            export = gridExportInProgress;
+            if (export == null || export.serialNumber() != packet.serialNumber()) {
+                LOG.warn("Ignoring grid export data for #{} that was not started", packet.serialNumber());
+                return;
+            }
         }
 
-        saveDir = saveDir.toAbsolutePath().normalize();
-
-        filename += packet.serialNumber() + "_" + TIMESTAMP_FORMATTER.format(LocalDateTime.now()) + ".zip";
+        export.bytesWritten()[0] += packet.compressedData().length;
+        if (export.bytesWritten()[0] > MAX_GRID_EXPORT_BYTES) {
+            AppEng.instance().sendSystemMessage(player,
+                    Component.literal("Grid export #" + export.serialNumber() + " exceeds "
+                            + (MAX_GRID_EXPORT_BYTES >> 20) + " MiB and was discarded")
+                            .withStyle(ChatFormatting.RED));
+            abandonGridExport();
+            return;
+        }
 
         OpenOption[] openOptions = new OpenOption[0];
         if (packet.contentType() != ExportedGridContent.ContentType.FIRST_CHUNK) {
             openOptions = new OpenOption[] { StandardOpenOption.APPEND };
         }
 
-        var tempPath = saveDir.resolve(filename + ".tmp");
-        var finalPath = saveDir.resolve(filename);
+        var tempPath = export.tempPath();
+        var finalPath = export.finalPath();
         try (var out = Files.newOutputStream(tempPath, openOptions)) {
             out.write(packet.compressedData());
         } catch (IOException e) {
@@ -288,10 +326,12 @@ public class AEClientboundPacketHandler {
                     Component.literal("Failed to write exported grid data to " + tempPath)
                             .withStyle(ChatFormatting.RED));
             LOG.error("Failed to write exported grid data to {}", tempPath, e);
+            abandonGridExport();
             return;
         }
 
         if (packet.contentType() == ExportedGridContent.ContentType.LAST_CHUNK) {
+            gridExportInProgress = null;
             try {
                 Files.move(tempPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
@@ -304,6 +344,18 @@ public class AEClientboundPacketHandler {
                                 return style.withUnderlined(true)
                                         .withClickEvent(new ClickEvent.OpenFile(finalPath.getParent().toString()));
                             })));
+        }
+    }
+
+    private void abandonGridExport() {
+        var export = gridExportInProgress;
+        gridExportInProgress = null;
+        if (export != null) {
+            try {
+                Files.deleteIfExists(export.tempPath());
+            } catch (IOException e) {
+                LOG.error("Failed to delete abandoned grid export {}", export.tempPath(), e);
+            }
         }
     }
 
