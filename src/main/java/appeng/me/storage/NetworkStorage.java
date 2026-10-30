@@ -55,16 +55,11 @@ public class NetworkStorage implements MEStorage {
     @Nullable
     private List<QueuedOperation> queuedOperations;
 
-    // Called when the listed contents may have changed
-    private final Runnable changeListener;
-
-    public NetworkStorage(Runnable changeListener) {
+    public NetworkStorage() {
         this.priorityInventory = new TreeMap<>(PRIORITY_SORTER);
-        this.changeListener = changeListener;
     }
 
     public void mount(int priority, MEStorage inventory) {
-        changeListener.run();
         if (mountsInUse) {
             if (queuedOperations == null) {
                 queuedOperations = new ArrayList<>();
@@ -77,7 +72,6 @@ public class NetworkStorage implements MEStorage {
     }
 
     public void unmount(MEStorage inventory) {
-        changeListener.run();
         if (mountsInUse) {
             if (queuedOperations == null) {
                 queuedOperations = new ArrayList<>();
@@ -145,10 +139,6 @@ public class NetworkStorage implements MEStorage {
 
         flushQueuedOperations();
 
-        if (remaining != amount && type == Actionable.MODULATE) {
-            changeListener.run();
-        }
-
         return amount - remaining;
     }
 
@@ -207,26 +197,7 @@ public class NetworkStorage implements MEStorage {
 
         flushQueuedOperations();
 
-        if (extracted > 0 && mode == Actionable.MODULATE) {
-            changeListener.run();
-        }
-
         return extracted;
-    }
-
-    /**
-     * @return true if any mounted storage can change without notifying {@link #changeListener}.
-     * @see ChangeTrackedStorage
-     */
-    public boolean hasUntrackedStorage() {
-        for (var inventories : this.priorityInventory.values()) {
-            for (var inventory : inventories) {
-                if (!(inventory instanceof ChangeTrackedStorage tracked) || !tracked.isChangeTracked()) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     @Override
