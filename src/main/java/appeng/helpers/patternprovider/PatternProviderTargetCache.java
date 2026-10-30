@@ -14,6 +14,7 @@ import net.neoforged.neoforge.capabilities.BlockCapabilityCache;
 import appeng.api.AECapabilities;
 import appeng.api.behaviors.ExternalStorageStrategy;
 import appeng.api.config.Actionable;
+import appeng.api.implementations.blockentities.ICraftingMachine;
 import appeng.api.networking.security.IActionSource;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.AEKeyType;
@@ -23,13 +24,20 @@ import appeng.parts.automation.StackWorldBehaviors;
 
 class PatternProviderTargetCache {
     private final BlockCapabilityCache<MEStorage, Direction> cache;
+    private final BlockCapabilityCache<ICraftingMachine, Direction> craftingMachineCache;
     private final IActionSource src;
     private final Map<AEKeyType, ExternalStorageStrategy> strategies;
 
     PatternProviderTargetCache(ServerLevel l, BlockPos pos, Direction direction, IActionSource src) {
         this.cache = BlockCapabilityCache.create(AECapabilities.ME_STORAGE, l, pos, direction);
+        this.craftingMachineCache = BlockCapabilityCache.create(AECapabilities.CRAFTING_MACHINE, l, pos, direction);
         this.src = src;
         this.strategies = StackWorldBehaviors.createExternalStorageStrategies(l, pos, direction);
+    }
+
+    @Nullable
+    ICraftingMachine findCraftingMachine() {
+        return craftingMachineCache.getCapability();
     }
 
     @Nullable
