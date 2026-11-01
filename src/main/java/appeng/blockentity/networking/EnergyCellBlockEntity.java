@@ -56,6 +56,10 @@ public class EnergyCellBlockEntity extends AENetworkedBlockEntity implements IAE
     private final StoredEnergyAmount stored;
     private byte currentDisplayLevel;
     private boolean neighborChangePending;
+    /**
+     * The comparator signal neighbors were last notified of. -1 if unknown.
+     */
+    private int notifiedComparatorSignal = -1;
 
     public EnergyCellBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState blockState) {
         super(blockEntityType, pos, blockState);
@@ -131,6 +135,14 @@ public class EnergyCellBlockEntity extends AENetworkedBlockEntity implements IAE
 
     private void onAmountChanged() {
         setChangedNoTicketUpdate();
+
+        // Only the comparator signal and the block state depend on the amount, and both change in coarse steps.
+        // Don't wake up the cell for changes that affect neither.
+        var storageLevel = getStorageLevelFromFillFactor(this.stored.getAmount() / this.stored.getMaximum());
+        if (getComparatorSignal() == notifiedComparatorSignal
+                && storageLevel == currentDisplayLevel) {
+            return;
+        }
 
         // Delay the notification since this happens while energy is being extracted/injected from the grid.
         // During injection/extraction, the grid should not be modified.
@@ -210,6 +222,12 @@ public class EnergyCellBlockEntity extends AENetworkedBlockEntity implements IAE
         return this.stored.getAmount();
     }
 
+    public int getComparatorSignal() {
+        var currentPower = getAECurrentPower();
+        var fillFactor = currentPower / getAEMaxPower();
+        return Mth.floor(fillFactor * 14.0F) + (currentPower > 0 ? 1 : 0);
+    }
+
     @Override
     public boolean isAEPublicPowerStorage() {
         return true;
@@ -240,6 +258,7 @@ public class EnergyCellBlockEntity extends AENetworkedBlockEntity implements IAE
         if (Platform.areBlockEntitiesTicking(getLevel(), getBlockPos())) {
             if (neighborChangePending) {
                 neighborChangePending = false;
+                notifiedComparatorSignal = getComparatorSignal();
                 setChanged(); // update comparators
                 updateStateForPowerLevel(); // and update block state
             }
