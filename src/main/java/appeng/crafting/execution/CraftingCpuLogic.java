@@ -197,17 +197,24 @@ public class CraftingCpuLogic {
             var details = task.getKey();
             var expectedOutputs = new KeyCounter();
             var expectedContainerItems = new KeyCounter();
-            // Contains the inputs for the pattern.
+            // Contains the inputs for the pattern. They are only extracted once a provider that isn't busy is found:
+            // a job waiting on busy machines retries every task every tick, and extracting and reinjecting the inputs
+            // for nothing is not free (it also notifies the CPU's listeners twice per input).
             @Nullable
-            var craftingContainer = CraftingCpuHelper.extractPatternInputs(
-                    details, inventory, level, expectedOutputs, expectedContainerItems);
+            KeyCounter[] craftingContainer = null;
+            boolean extracted = false;
 
             // Try to push to each provider.
             for (var provider : craftingService.getProviders(details)) {
-                if (craftingContainer == null)
-                    break;
                 if (provider.isBusy())
                     continue;
+                if (!extracted) {
+                    extracted = true;
+                    craftingContainer = CraftingCpuHelper.extractPatternInputs(
+                            details, inventory, level, expectedOutputs, expectedContainerItems);
+                }
+                if (craftingContainer == null)
+                    break;
 
                 var patternPower = CraftingCpuHelper.calculatePatternPower(craftingContainer);
 
