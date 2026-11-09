@@ -42,6 +42,7 @@ import net.minecraft.world.item.crafting.RecipeInput;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.LiquidBlockContainer;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateHolder;
 import net.minecraft.world.level.block.state.properties.Property;
@@ -172,6 +173,11 @@ public class EntropyRecipe extends MechanicsRecipe<RecipeInput> {
                 }
                 var stateDefinition = inputFluid.getStateDefinition();
                 if (!PropertyUtils.doPropertiesMatch(stateDefinition, fluidState, fluid.get().properties())) {
+                    return false;
+                }
+                // A fluid-only recipe replaces the whole block, so it must not match a block that merely holds the
+                // fluid (e.g. a waterlogged slab), or that block would be destroyed.
+                if (block.isEmpty() && blockState.getBlock() instanceof LiquidBlockContainer) {
                     return false;
                 }
             }
