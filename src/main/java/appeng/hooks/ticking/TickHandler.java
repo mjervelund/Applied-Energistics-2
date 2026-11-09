@@ -380,8 +380,8 @@ public class TickHandler {
                 }
 
                 for (var info : chunkQueue) {
-                    // Only ready block entities which weren't destroyed in the meantime.
-                    if (!info.blockEntity().isRemoved()) {
+                    // Only ready block entities which weren't destroyed or replaced in the meantime.
+                    if (isStillInLevel(level, info.blockEntity())) {
                         try {
                             // This could load more chunks, but the earliest time to be initialized is the next tick.
                             info.callInit();
@@ -398,6 +398,28 @@ public class TickHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Mods can change the block at a position without removing its block entity (e.g. by writing chunk sections
+     * directly). Like vanilla's block entity ticking, don't run the deferred initialization of a block entity that is
+     * no longer the one in the level or whose type doesn't match the current block state.
+     */
+    private static boolean isStillInLevel(ServerLevel level, BlockEntity blockEntity) {
+        if (blockEntity.isRemoved()) {
+            return false;
+        }
+        var pos = blockEntity.getBlockPos();
+        if (level.getBlockEntity(pos) != blockEntity) {
+            AELog.debug("Not readying %s at %s: it was replaced by another block entity", blockEntity, pos);
+            return false;
+        }
+        var state = level.getBlockState(pos);
+        if (!blockEntity.isValidBlockState(state)) {
+            AELog.debug("Not readying %s at %s: block state %s is not valid for it", blockEntity, pos, state);
+            return false;
+        }
+        return true;
     }
 
     /**
