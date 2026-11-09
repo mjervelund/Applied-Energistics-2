@@ -8,11 +8,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.util.Prediction;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.util.FakePlayer;
 
 import appeng.api.config.FuzzyMode;
@@ -197,6 +200,57 @@ public final class MemoryCardTestPlots {
                     throw helper.assertionException(origin.east(), "Mismatch in slot " + i);
                 }
             }
+
+            helper.succeed();
+        });
+    }
+
+    /**
+     * Copies a cable pattern provider's settings with a memory card (through the actual interaction) to another cable
+     * pattern provider and to a pattern provider block. Its patterns must arrive in both.
+     */
+    @TestPlot("memcard_pattern_provider_part_interaction")
+    public static void testPatternProviderPartInteraction(PlotBuilder plot) {
+        var origin = BlockPos.ZERO;
+        plot.cable(origin)
+                .part(Direction.WEST, AEParts.PATTERN_PROVIDER)
+                .part(Direction.EAST, AEParts.PATTERN_PROVIDER);
+        plot.block(origin.above(), AEBlocks.PATTERN_PROVIDER);
+
+        plot.test(helper -> {
+            var pattern = PatternDetailsHelper.encodeProcessingPattern(
+                    List.of(new GenericStack(AEFluidKey.of(Fluids.WATER), 1)),
+                    List.of(new GenericStack(AEFluidKey.of(Fluids.LAVA), 1)));
+
+            var from = helper.getPart(origin, Direction.WEST, PatternProviderPart.class);
+            var toPart = helper.getPart(origin, Direction.EAST, PatternProviderPart.class);
+            var toBlock = helper.getBlockEntity(origin.above(), PatternProviderBlockEntity.class);
+            from.getLogic().getPatternInv().addItems(pattern.copy());
+
+            var player = (FakePlayer) Platform.getFakePlayer(helper.getLevel(), null);
+            player.getInventory().placeItemBackInInventory(AEItems.BLANK_PATTERN.stack(64), Prediction.SERVER_ONLY);
+            player.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
+
+            var memoryCard = AEItems.MEMORY_CARD.stack();
+            var hitPos = helper.absoluteVec(Vec3.atCenterOf(origin));
+
+            // Export (shift-use), then import into the other part
+            player.setShiftKeyDown(true);
+            from.onUseItemOn(memoryCard, player, InteractionHand.MAIN_HAND, hitPos);
+            player.setShiftKeyDown(false);
+            toPart.onUseItemOn(memoryCard, player, InteractionHand.MAIN_HAND, hitPos);
+            var partPattern = toPart.getLogic().getPatternInv().getStackInSlot(0);
+            helper.check(ItemStack.isSameItemSameComponents(pattern, partPattern),
+                    "pattern was not copied from part to part", origin);
+
+            // Import into the block form
+            var blockPos = helper.absolutePos(origin.above());
+            var hit = new BlockHitResult(Vec3.atCenterOf(blockPos), Direction.UP, blockPos, false);
+            helper.getLevel().getBlockState(blockPos).useItemOn(memoryCard, helper.getLevel(), player,
+                    InteractionHand.MAIN_HAND, hit);
+            var blockPattern = toBlock.getLogic().getPatternInv().getStackInSlot(0);
+            helper.check(ItemStack.isSameItemSameComponents(pattern, blockPattern),
+                    "pattern was not copied from part to block", origin.above());
 
             helper.succeed();
         });
