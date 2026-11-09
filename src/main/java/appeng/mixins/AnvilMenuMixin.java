@@ -23,8 +23,12 @@ public abstract class AnvilMenuMixin extends ItemCombinerMenu {
 
     @ModifyExpressionValue(method = "createResultInternal", at = @At(value = "INVOKE", target = "net/minecraft/world/item/ItemStack.isDamageableItem()Z", ordinal = 1))
     public boolean setAnnihilationPlaneThreadLocal(boolean isDamageable) {
-        if (AEParts.ANNIHILATION_PLANE.is(inputSlots.getItem(0))
-                && AEParts.ANNIHILATION_PLANE.is(inputSlots.getItem(1))) {
+        var input = inputSlots.getItem(0);
+        var addition = inputSlots.getItem(1);
+        // Only combine single planes: the anvil consumes the whole right-hand stack (it assumes enchantable items
+        // don't stack), and it would apply the result to every plane of a left-hand stack.
+        if (AEParts.ANNIHILATION_PLANE.is(input) && input.getCount() == 1
+                && AEParts.ANNIHILATION_PLANE.is(addition) && addition.getCount() == 1) {
             return true; // Act damageable to allow combining items
         } else {
             return isDamageable;
