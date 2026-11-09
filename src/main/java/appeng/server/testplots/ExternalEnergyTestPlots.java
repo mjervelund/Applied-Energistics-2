@@ -1,12 +1,21 @@
 package appeng.server.testplots;
 
+import java.util.function.Supplier;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.transfer.energy.EnergyHandler;
+import net.neoforged.neoforge.transfer.transaction.Transaction;
 
+import appeng.api.config.Actionable;
+import appeng.api.config.PowerMultiplier;
+import appeng.api.networking.energy.IEnergyService;
 import appeng.api.stacks.AEItemKey;
 import appeng.block.misc.GrowthAcceleratorBlock;
 import appeng.blockentity.misc.GrowthAcceleratorBlockEntity;
+import appeng.blockentity.networking.EnergyCellBlockEntity;
 import appeng.blockentity.storage.MEChestBlockEntity;
 import appeng.core.definitions.AEBlocks;
 import appeng.core.definitions.AEItems;
@@ -111,6 +120,64 @@ public class ExternalEnergyTestPlots {
                 // Ensure that after 1 second, the grid still has no energy
                 .thenExecuteAfter(20, () -> checkGridHasNoEnergy(helper))
                 .thenSucceed());
+    }
+
+    /**
+     * Two acceptors on one grid both offered the grid's full demand inside one transaction: the second one's commit can
+     * only push part of it. The leftover must not block that acceptor forever
+     * (https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/9041).
+     */
+    @TestPlot("fe_acceptor_recovers_from_leftover")
+    public static void testAcceptorRecoversFromLeftover(PlotBuilder plot) {
+        var first = ORIGIN;
+        var second = ORIGIN.east();
+        plot.block(first, AEBlocks.ENERGY_ACCEPTOR);
+        plot.block(second, AEBlocks.ENERGY_ACCEPTOR);
+        plot.block(ORIGIN.west(), AEBlocks.ENERGY_CELL);
+        plot.test(helper -> {
+            var level = helper.getLevel();
+            Supplier<EnergyHandler> firstHandler = () -> level.getCapability(Capabilities.Energy.BLOCK,
+                    helper.absolutePos(first), Direction.UP);
+            Supplier<EnergyHandler> secondHandler = () -> level.getCapability(Capabilities.Energy.BLOCK,
+                    helper.absolutePos(second), Direction.UP);
+            Supplier<IEnergyService> energy = () -> helper.getGrid(ORIGIN).getEnergyService();
+            // The grid's stored-power figure is only refreshed periodically, so look at the cell itself.
+            Supplier<Double> cellPower = () -> helper.getBlockEntity(ORIGIN.west(), EnergyCellBlockEntity.class)
+                    .getAECurrentPower();
+            helper.startSequence()
+                    .thenWaitUntil(helper::checkAllInitialized)
+                    .thenExecute(() -> {
+                        try (var tx = Transaction.open(null)) {
+                            var a = firstHandler.get().insert(10_000_000, tx);
+                            var b = secondHandler.get().insert(10_000_000, tx);
+                            helper.check(a > 0 && b > 0, "both acceptors accept the demand (" + a + ", " + b + ")",
+                                    ORIGIN);
+                            tx.commit();
+                        }
+                        // Empty the grid so that it has room again.
+                        energy.get().extractAEPower(Double.MAX_VALUE, Actionable.MODULATE, PowerMultiplier.ONE);
+                    })
+                    .thenWaitUntil(() -> helper.check(energy.get().getEnergyDemand(1) > 0, "grid wants power", ORIGIN))
+                    .thenExecute(() -> {
+                        helper.check(cellPower.get() < 1, "grid drained", ORIGIN);
+                        // Generators commonly simulate first and only commit when something is accepted. The
+                        // power the second acceptor already took must reach the grid even then.
+                        try (var tx = Transaction.open(null)) {
+                            secondHandler.get().insert(1000, tx);
+                        }
+                        helper.check(cellPower.get() > 0,
+                                "power accepted by the second acceptor never reached the grid", second);
+                        energy.get().extractAEPower(Double.MAX_VALUE, Actionable.MODULATE, PowerMultiplier.ONE);
+                    })
+                    .thenWaitUntil(() -> {
+                        try (var tx = Transaction.open(null)) {
+                            var accepted = secondHandler.get().insert(1000, tx);
+                            helper.check(accepted > 0,
+                                    "second acceptor stopped accepting power after a partial commit", second);
+                        }
+                    })
+                    .thenSucceed();
+        });
     }
 
     private static void testGridIsReceivingEnergy(PlotBuilder plot) {
