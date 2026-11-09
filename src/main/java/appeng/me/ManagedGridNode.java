@@ -222,10 +222,18 @@ public class ManagedGridNode implements IManagedGridNode {
         return this.node.isOnline();
     }
 
+    /**
+     * @see IGridNode#isPowered()
+     */
     @Override
     public boolean isPowered() {
-        var grid = getGrid();
-        return grid != null && grid.getEnergyService().isNetworkPowered();
+        if (this.node == null) {
+            return false;
+        }
+
+        // Delegate to the node instead of going through getGrid(), which throws if the underlying node has already
+        // been destroyed (i.e. by TickHandler during a level unload) while the owning block entity is still around.
+        return this.node.isPowered();
     }
 
     @Override
