@@ -88,6 +88,7 @@ import appeng.init.internal.InitStorageCells;
 import appeng.init.internal.InitUpgrades;
 import appeng.init.worldgen.InitStructures;
 import appeng.integration.Integrations;
+import appeng.recipes.AERecipeDisplayTypes;
 import appeng.recipes.AERecipeSerializers;
 import appeng.recipes.AERecipeTypes;
 import appeng.server.AECommand;
@@ -137,6 +138,7 @@ public abstract class AppEngBase implements AppEng {
         AEEntities.DR.register(modEventBus);
         AERecipeTypes.DR.register(modEventBus);
         AERecipeSerializers.DR.register(modEventBus);
+        AERecipeDisplayTypes.DR.register(modEventBus);
         InitStructures.register(modEventBus);
         AEAttachmentTypes.register(modEventBus);
 
