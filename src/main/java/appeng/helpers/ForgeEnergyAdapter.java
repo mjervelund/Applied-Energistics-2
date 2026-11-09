@@ -34,7 +34,17 @@ import appeng.me.energy.StoredEnergyAmount;
 public class ForgeEnergyAdapter extends SnapshotJournal<Double> implements EnergyHandler {
 
     private final IExternalPowerSink sink;
+    /**
+     * Power accepted in the current transaction, pushed into the sink when the outermost transaction commits.
+     */
     private double buffer = 0;
+    /**
+     * Power from an already committed transaction that the sink could not take at commit time (e.g. another acceptor on
+     * the same grid filled it in the same transaction). Not part of any transaction: it is pushed again on the next
+     * insertion attempt, even a simulated one, so that it can never block this adapter for good
+     * (https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/9041).
+     */
+    private double leftover = 0;
 
     public ForgeEnergyAdapter(IExternalPowerSink sink) {
         this.sink = sink;
@@ -52,16 +62,28 @@ public class ForgeEnergyAdapter extends SnapshotJournal<Double> implements Energ
 
     @Override
     protected void onRootCommit(Double originalState) {
-        buffer = sink.injectExternalPower(PowerUnit.FE, buffer, Actionable.MODULATE);
-        if (buffer < StoredEnergyAmount.MIN_AMOUNT) {
-            // Prevent a small leftover amount from blocking further energy insertions.
-            buffer = 0;
+        leftover += buffer;
+        buffer = 0;
+        pushLeftover();
+    }
+
+    private void pushLeftover() {
+        if (leftover > 0) {
+            leftover = sink.injectExternalPower(PowerUnit.FE, leftover, Actionable.MODULATE);
+            if (leftover < StoredEnergyAmount.MIN_AMOUNT) {
+                leftover = 0;
+            }
         }
     }
 
     @Override
     public int insert(int maxAmount, TransactionContext tx) {
         TransferPreconditions.checkNonNegative(maxAmount);
+        pushLeftover();
+        if (leftover > 0) {
+            return 0; // The sink is still full
+        }
+
         // Always schedule a push into the network at outer commit.
         updateSnapshots(tx);
 
