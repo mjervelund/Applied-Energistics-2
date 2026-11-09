@@ -329,7 +329,7 @@ public final class AEConfig {
     public void setChannelModel(ChannelMode mode) {
         if (mode != common.channels.get()) {
             common.channels.set(mode);
-            client.spec.save();
+            common.spec.save();
         }
     }
 
@@ -414,7 +414,10 @@ public final class AEConfig {
 
     public void save() {
         common.spec.save();
-        client.spec.save();
+        // A dedicated server never loads the client config
+        if (client.spec.isLoaded()) {
+            client.spec.save();
+        }
     }
 
     private static class ClientConfig {
