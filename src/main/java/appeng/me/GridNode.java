@@ -70,6 +70,7 @@ import appeng.api.util.AEColor;
 import appeng.blockentity.networking.ControllerBlockEntity;
 import appeng.core.AELog;
 import appeng.me.pathfinding.IPathItem;
+import appeng.util.CrashReportHelper;
 import appeng.util.IDebugExportable;
 import appeng.util.JsonStreamUtil;
 
@@ -756,7 +757,7 @@ public class GridNode implements IGridNode, IPathItem, IDebugExportable {
         if (getOwner() instanceof IPart part) {
             part.addEntityCrashInfo(category);
         } else if (getOwner() instanceof BlockEntity blockEntity) {
-            blockEntity.fillCrashReportCategory(category);
+            CrashReportHelper.fillBlockEntityDetails(category, blockEntity);
             Level level = blockEntity.getLevel();
             if (level != null) {
                 category.setDetail("Level", level.dimension());

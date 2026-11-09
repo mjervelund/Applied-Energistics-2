@@ -60,6 +60,7 @@ import appeng.core.AELog;
 import appeng.crafting.CraftingCalculation;
 import appeng.me.Grid;
 import appeng.me.GridNode;
+import appeng.util.CrashReportHelper;
 import appeng.util.ILevelRunnable;
 import appeng.util.Platform;
 
@@ -251,6 +252,8 @@ public class TickHandler {
             try {
                 g.onLevelStartTick(level);
             } catch (Throwable t) {
+                // Log first: filling the crash report may itself fail or hang.
+                LOG.error("Ticking grid on start of level tick failed for {}", g, t);
                 CrashReport crashReport = CrashReport.forThrowable(t, "Ticking grid on start of level tick");
                 g.fillCrashReportCategory(crashReport.addCategory("Grid being ticked"));
                 level.fillReportDetails(crashReport);
@@ -271,6 +274,8 @@ public class TickHandler {
             try {
                 g.onLevelEndTick(level);
             } catch (Throwable t) {
+                // Log first: filling the crash report may itself fail or hang.
+                LOG.error("Ticking grid on end of level tick failed for {}", g, t);
                 CrashReport crashReport = CrashReport.forThrowable(t, "Ticking grid on end of level tick");
                 g.fillCrashReportCategory(crashReport.addCategory("Grid being ticked"));
                 level.fillReportDetails(crashReport);
@@ -290,6 +295,8 @@ public class TickHandler {
             try {
                 g.onServerStartTick();
             } catch (Throwable t) {
+                // Log first: filling the crash report may itself fail or hang.
+                LOG.error("Ticking grid on start of server tick failed for {}", g, t);
                 CrashReport crashReport = CrashReport.forThrowable(t, "Ticking grid on start of server tick");
                 g.fillCrashReportCategory(crashReport.addCategory("Grid being ticked"));
                 throw new ReportedException(crashReport);
@@ -303,6 +310,8 @@ public class TickHandler {
             try {
                 g.onServerEndTick();
             } catch (Throwable t) {
+                // Log first: filling the crash report may itself fail or hang.
+                LOG.error("Ticking grid on end of server tick failed for {}", g, t);
                 CrashReport crashReport = CrashReport.forThrowable(t, "Ticking grid on end of server tick");
                 g.fillCrashReportCategory(crashReport.addCategory("Grid being ticked"));
                 throw new ReportedException(crashReport);
@@ -386,11 +395,13 @@ public class TickHandler {
                             // This could load more chunks, but the earliest time to be initialized is the next tick.
                             info.callInit();
                         } catch (Throwable t) {
+                            // Log first: filling the crash report may itself fail or hang.
+                            LOG.error("Readying AE2 block entity {} failed", info.blockEntity(), t);
                             CrashReport crashReport = CrashReport.forThrowable(t, "Readying AE2 block entity");
 
                             var category = crashReport.addCategory("Block entity being readied");
                             category.setDetail("World", () -> level.dimension().identifier().toString());
-                            info.blockEntity().fillCrashReportCategory(category);
+                            CrashReportHelper.fillBlockEntityDetails(category, info.blockEntity());
 
                             throw new ReportedException(crashReport);
                         }
