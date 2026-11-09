@@ -74,6 +74,7 @@ import appeng.core.definitions.AEBlocks;
 import appeng.core.definitions.AEParts;
 import appeng.items.tools.MemoryCardItem;
 import appeng.parts.automation.PartModelData;
+import appeng.util.CrashReportHelper;
 import appeng.util.IDebugExportable;
 import appeng.util.InteractionUtil;
 import appeng.util.JsonStreamUtil;
@@ -168,7 +169,7 @@ public abstract class AEBasePart
         crashreportcategory.setDetail("Part Side", this.getSide());
         var beHost = getBlockEntity();
         if (beHost != null) {
-            beHost.fillCrashReportCategory(crashreportcategory);
+            CrashReportHelper.fillBlockEntityDetails(crashreportcategory, beHost);
             var level = beHost.getLevel();
             if (level != null) {
                 crashreportcategory.setDetail("Level", level.dimension());
