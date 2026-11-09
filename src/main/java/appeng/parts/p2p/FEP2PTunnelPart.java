@@ -41,7 +41,8 @@ public class FEP2PTunnelPart extends CapabilityP2PTunnelPart<FEP2PTunnelPart, En
             TransferPreconditions.checkNonNegative(maxAmount);
             int total = 0;
 
-            int outputTunnels = getOutputs().size();
+            var outputs = getOutputs();
+            int outputTunnels = outputs.size();
             int amount = maxAmount;
 
             if (outputTunnels == 0 || amount == 0) {
@@ -51,7 +52,7 @@ public class FEP2PTunnelPart extends CapabilityP2PTunnelPart<FEP2PTunnelPart, En
             int amountPerOutput = amount / outputTunnels;
             int overflow = amountPerOutput == 0 ? amount : amount % amountPerOutput;
 
-            for (var target : getOutputs()) {
+            for (var target : outputs) {
                 try (CapabilityGuard capabilityGuard = target.getAdjacentCapability()) {
                     var output = capabilityGuard.get();
                     int toSend = amountPerOutput + overflow;
