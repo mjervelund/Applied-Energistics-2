@@ -1,4 +1,4 @@
-package appeng.me.service;
+package appeng.me;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,7 +21,6 @@ import appeng.api.stacks.KeyCounter;
 import appeng.api.storage.IStorageMounts;
 import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.MEStorage;
-import appeng.me.AbstractGridNodeTest;
 import appeng.me.storage.ChangeTrackedStorage;
 
 /**
