@@ -86,6 +86,10 @@ public class StorageService implements IStorageService, IGridServiceProvider {
     private final Object2LongMap<AEKey> cachedAvailableAmounts = new Object2LongOpenHashMap<>();
     private boolean cachedStacksNeedUpdate = true;
     /**
+     * Set when the network storage reports a change. See {@link appeng.me.storage.ChangeTrackedStorage}.
+     */
+    private boolean storageChanged = true;
+    /**
      * Tracks the stack watcher associated with a given grid node. Needed to clean up watchers when the node leaves the
      * grid.
      */
@@ -94,16 +98,18 @@ public class StorageService implements IStorageService, IGridServiceProvider {
     private final StatsAccumulator inventoryRefreshStats = new StatsAccumulator();
 
     public StorageService() {
-        this.storage = new NetworkStorage();
+        this.storage = new NetworkStorage(() -> storageChanged = true);
     }
 
     @Override
     public void onServerEndTick() {
-        if (interestManager.isEmpty()) {
-            // lazily rebuild cache list
+        // Storage that doesn't report its changes has to be listed again every tick
+        if (storageChanged || storage.hasUntrackedStorage()) {
             cachedStacksNeedUpdate = true;
-        } else {
-            // we need to rebuild the cache every tick to notify listeners
+        }
+
+        if (cachedStacksNeedUpdate && !interestManager.isEmpty()) {
+            // rebuild the cache now to notify listeners
             updateCachedStacks();
         }
     }
@@ -113,6 +119,7 @@ public class StorageService implements IStorageService, IGridServiceProvider {
 
         try {
             cachedStacksNeedUpdate = false;
+            storageChanged = false;
 
             cachedAvailableStacks.clear();
             storage.getAvailableStacks(cachedAvailableStacks);
