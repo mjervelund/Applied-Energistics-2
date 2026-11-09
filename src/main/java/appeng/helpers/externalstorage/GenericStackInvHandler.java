@@ -8,6 +8,7 @@ import net.neoforged.neoforge.transfer.resource.Resource;
 import net.neoforged.neoforge.transfer.transaction.TransactionContext;
 
 import appeng.api.behaviors.GenericInternalInventory;
+import appeng.api.stacks.AEKey;
 import appeng.api.stacks.AEKeyType;
 import appeng.api.stacks.GenericStack;
 import appeng.helpers.ResourceConversion;
@@ -42,12 +43,14 @@ public class GenericStackInvHandler<V extends Resource> implements ResourceHandl
             return 0;
         }
         int totalInserted = 0;
+        // Convert once: building the key hashes the resource's components, and the loops below try every slot.
+        var key = conversion.getKey(resource);
 
         // First iteration matches the resource, second iteration inserts into empty slots.
         int size = size();
         for (int i = 0; i < size; i++) {
             if (inv.getKey(i) != null) {
-                totalInserted += insert(i, resource, maxAmount - totalInserted, transaction);
+                totalInserted += insertKey(i, key, maxAmount - totalInserted, transaction);
                 if (totalInserted >= maxAmount) {
                     break;
                 }
@@ -56,7 +59,7 @@ public class GenericStackInvHandler<V extends Resource> implements ResourceHandl
 
         for (int i = 0; i < size; i++) {
             if (inv.getKey(i) == null) {
-                totalInserted += insert(i, resource, maxAmount - totalInserted, transaction);
+                totalInserted += insertKey(i, key, maxAmount - totalInserted, transaction);
                 if (totalInserted >= maxAmount) {
                     break;
                 }
@@ -117,8 +120,11 @@ public class GenericStackInvHandler<V extends Resource> implements ResourceHandl
             return 0;
         }
 
+        return insertKey(index, conversion.getKey(resource), amount, transaction);
+    }
+
+    private int insertKey(int index, AEKey key, int amount, TransactionContext transaction) {
         var currentKey = inv.getKey(index);
-        var key = conversion.getKey(resource);
         if ((currentKey == null && inv.isAllowedIn(index, key)) || (currentKey != null && currentKey.equals(key))) {
             int inserted = (int) Math.min(amount, inv.getMaxAmount(key) - getAmountAsLong(index));
 
