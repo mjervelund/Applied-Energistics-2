@@ -19,6 +19,8 @@
 package appeng.client.gui.me.common;
 
 import java.util.Comparator;
+import java.util.IdentityHashMap;
+import java.util.function.Function;
 
 import appeng.api.config.SortDir;
 import appeng.api.config.SortOrder;
@@ -43,12 +45,23 @@ final class KeySorters {
 
     public static final Comparator<AEKey> MOD_DESC = MOD_ASC.reversed();
 
+    /**
+     * Returns a comparator with the same order as {@link #NAME_ASC}, {@link #NAME_DESC}, {@link #MOD_ASC} or
+     * {@link #MOD_DESC}, which turns each key's display name into a string only once. The plain comparators call
+     * {@code getString()} (a translation lookup and a new string) twice per comparison, about 2 n log n times for n
+     * keys, and the terminal sorts again on every inventory update. The strings are kept for the lifetime of the
+     * comparator: get a new one for each sort.
+     */
     public static Comparator<AEKey> getComparator(SortOrder order, SortDir dir) {
-        return switch (order) {
-            case NAME -> dir == SortDir.ASCENDING ? NAME_ASC : NAME_DESC;
-            case MOD -> dir == SortDir.ASCENDING ? MOD_ASC : MOD_DESC;
+        var names = new IdentityHashMap<AEKey, String>();
+        Function<AEKey, String> name = key -> names.computeIfAbsent(key, k -> k.getDisplayName().getString());
+        Comparator<AEKey> nameAsc = Comparator.comparing(name, String::compareToIgnoreCase);
+        Comparator<AEKey> ascending = switch (order) {
+            case NAME -> nameAsc;
+            case MOD -> Comparator.comparing(AEKey::getModId, String::compareToIgnoreCase).thenComparing(nameAsc);
             case AMOUNT -> throw new UnsupportedOperationException();
         };
+        return dir == SortDir.ASCENDING ? ascending : ascending.reversed();
     }
 
 }
