@@ -94,12 +94,22 @@ public class ItemPlacementStrategy implements PlacementStrategy {
 
                     // In case the item does not look at the use context for the stack to use
                     player.setItemInHand(InteractionHand.MAIN_HAND, is);
+                    var remainder = ItemStack.EMPTY;
                     try {
                         i.useOn(context);
                     } finally {
+                        // Some items replace themselves in the hand with a remainder when used,
+                        // e.g. a powder snow bucket leaves an empty bucket behind.
+                        var held = player.getItemInHand(InteractionHand.MAIN_HAND);
+                        if (held != is) {
+                            remainder = held;
+                        }
                         player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                     }
                     maxStorage = Math.max(0, maxStorage - is.getCount());
+                    if (!remainder.isEmpty()) {
+                        spawnItemEntity(level, host, side, remainder);
+                    }
 
                 } else {
                     maxStorage = 1;
