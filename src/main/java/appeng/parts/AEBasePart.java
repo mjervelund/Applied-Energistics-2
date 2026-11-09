@@ -320,8 +320,7 @@ public abstract class AEBasePart
 
         if (mode == SettingsFrom.MEMORY_CARD) {
             MemoryCardItem.exportGenericSettings(this, builder);
-            builder.set(AEComponents.EXPORTED_SETTINGS_SOURCE,
-                    getPartItem().asItem().getDefaultInstance().getItemName());
+            builder.set(AEComponents.EXPORTED_SETTINGS_SOURCE, getMemoryCardSourceName());
         }
     }
 
@@ -329,6 +328,23 @@ public abstract class AEBasePart
         var builder = DataComponentMap.builder();
         exportSettings(mode, builder);
         return builder.build();
+    }
+
+    /**
+     * The name stored as {@link AEComponents#EXPORTED_SETTINGS_SOURCE} when exporting settings to a memory card, and
+     * compared against it when importing. Must be the same on both sides so that a part can import its own settings.
+     */
+    private Component getMemoryCardSourceName() {
+        Item partItem = getPartItem().asItem();
+
+        // Blocks and parts share the same soul!
+        if (AEParts.INTERFACE.asItem() == partItem) {
+            partItem = AEBlocks.INTERFACE.asItem();
+        } else if (AEParts.PATTERN_PROVIDER.asItem() == partItem) {
+            partItem = AEBlocks.PATTERN_PROVIDER.asItem();
+        }
+
+        return partItem.getDefaultInstance().getItemName();
     }
 
     public boolean useStandardMemoryCard() {
@@ -340,16 +356,7 @@ public abstract class AEBasePart
             return false;
         }
 
-        Item partItem = getPartItem().asItem();
-
-        // Blocks and parts share the same soul!
-        if (AEParts.INTERFACE.asItem() == partItem) {
-            partItem = AEBlocks.INTERFACE.asItem();
-        } else if (AEParts.PATTERN_PROVIDER.asItem() == partItem) {
-            partItem = AEBlocks.PATTERN_PROVIDER.asItem();
-        }
-
-        var name = partItem.getDefaultInstance().getItemName();
+        var name = getMemoryCardSourceName();
 
         if (InteractionUtil.isInAlternateUseMode(player)) {
             var settings = exportSettings(SettingsFrom.MEMORY_CARD);
