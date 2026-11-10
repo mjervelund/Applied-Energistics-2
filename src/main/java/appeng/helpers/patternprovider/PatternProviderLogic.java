@@ -279,6 +279,11 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
 
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
+        // pushPattern refuses while the node is inactive (no channel or no power), so do not offer the patterns then,
+        // or the crafting planner picks this provider and the job gets stuck.
+        if (!this.mainNode.isActive()) {
+            return List.of();
+        }
         return this.patterns;
     }
 
@@ -558,6 +563,9 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
     }
 
     public void onMainNodeStateChanged() {
+        // The available patterns depend on the active state.
+        ICraftingProvider.requestUpdate(mainNode);
+
         if (this.mainNode.isActive()) {
             this.mainNode.ifPresent((grid, node) -> {
                 grid.getTickManager().alertDevice(node);
