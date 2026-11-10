@@ -17,6 +17,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.NonNullList;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
@@ -130,25 +131,8 @@ public final class EncodingHelper {
                     continue; // Skip empty slots
                 }
 
-                // Due to how some crafting recipes work, the ingredient can match more than just one item in the
-                // network inventory. We'll find all network inventory entries that it matches and sort them
-                // according to their suitability for encoding a pattern
-                var bestNetworkIngredient = prioritizedNetworkInv.entrySet().stream()
-                        .filter(ni -> ni.getKey() instanceof AEItemKey itemKey && itemKey.matches(ingredient))
-                        .max(Comparator.comparingInt(Map.Entry::getValue))
-                        .map(entry -> entry.getKey() instanceof AEItemKey itemKey ? itemKey.toStack() : null);
-
-                // To avoid encoding hidden entries, we'll cycle through the ingredient and try to find a visible
-                // stack, otherwise we'll use the first entry.
-                var bestIngredient = bestNetworkIngredient.orElse(
-                        ingredient.items()
-                                .map(Holder::value)
-                                .map(Item::getDefaultInstance)
-                                .filter(visiblePredicate).findFirst()
-                                .orElse(ingredient.items()
-                                        .map(Holder::value)
-                                        .map(Item::getDefaultInstance).findFirst()
-                                        .orElse(ItemStack.EMPTY)));
+                var bestIngredient = findBestCraftingIngredient(ingredient, prioritizedNetworkInv,
+                        genericIngredients, visiblePredicate);
 
                 encodedInputs.set(slot, bestIngredient);
             }
@@ -184,6 +168,64 @@ public final class EncodingHelper {
             ClientPacketDistributor.sendToServer(message);
         }
 
+    }
+
+    /**
+     * Picks the stack to encode for one ingredient of a crafting recipe.
+     *
+     * @param shownIngredients The stacks the recipe viewer shows for the recipe's slots.
+     */
+    static ItemStack findBestCraftingIngredient(Ingredient ingredient,
+            Map<AEKey, Integer> prioritizedNetworkInv,
+            List<List<GenericStack>> shownIngredients,
+            Predicate<ItemStack> visiblePredicate) {
+        // Due to how some crafting recipes work, the ingredient can match more than just one item in the
+        // network inventory. We'll find all network inventory entries that it matches and sort them
+        // according to their suitability for encoding a pattern
+        var bestNetworkIngredient = prioritizedNetworkInv.entrySet().stream()
+                .filter(ni -> ni.getKey() instanceof AEItemKey itemKey && itemKey.matches(ingredient))
+                .max(Comparator.comparingInt(Map.Entry::getValue))
+                .map(entry -> entry.getKey() instanceof AEItemKey itemKey ? itemKey.toStack() : null);
+
+        if (bestNetworkIngredient.isPresent()) {
+            return bestNetworkIngredient.get();
+        }
+
+        // To avoid encoding hidden entries, we'll prefer a visible stack, otherwise we'll use the first entry.
+        var defaultStacks = ingredient.items()
+                .map(Holder::value)
+                .map(Item::getDefaultInstance)
+                .toList();
+        var matchingDefaultStack = firstPreferVisible(
+                defaultStacks.stream().filter(ingredient::test).toList(), visiblePredicate);
+        if (matchingDefaultStack != null) {
+            return matchingDefaultStack;
+        }
+
+        // Ingredients that require data components (e.g. DataComponentIngredient or custom ingredients) don't
+        // match the default stack of their items. Use the stacks the recipe viewer shows, which carry them.
+        var matchingShownStacks = shownIngredients.stream()
+                .flatMap(List::stream)
+                .map(GenericStack::what)
+                .filter(AEItemKey.class::isInstance)
+                .map(key -> ((AEItemKey) key).toStack())
+                .filter(ingredient::test)
+                .toList();
+        var shownStack = firstPreferVisible(matchingShownStacks, visiblePredicate);
+        if (shownStack != null) {
+            return shownStack;
+        }
+
+        var anyDefaultStack = firstPreferVisible(defaultStacks, visiblePredicate);
+        return anyDefaultStack != null ? anyDefaultStack : ItemStack.EMPTY;
+    }
+
+    @Nullable
+    private static ItemStack firstPreferVisible(List<ItemStack> stacks, Predicate<ItemStack> visiblePredicate) {
+        return stacks.stream()
+                .filter(visiblePredicate)
+                .findFirst()
+                .orElse(stacks.isEmpty() ? null : stacks.getFirst());
     }
 
     // Given a set of possible ingredients, find the one that has the highest priority
