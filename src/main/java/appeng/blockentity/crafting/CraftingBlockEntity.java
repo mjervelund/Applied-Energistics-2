@@ -117,7 +117,7 @@ public class CraftingBlockEntity extends AENetworkedBlockEntity
     }
 
     public void updateStatus(CraftingCPUCluster c) {
-        if (this.cluster != null && this.cluster != c) {
+        if (this.cluster != null && this.cluster != c && (c == null || !this.cluster.handOverTo(c))) {
             this.cluster.breakCluster();
         }
 
