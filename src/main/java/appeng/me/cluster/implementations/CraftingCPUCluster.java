@@ -28,6 +28,9 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.storage.TagValueInput;
+import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
@@ -65,6 +68,11 @@ public final class CraftingCPUCluster implements IAECluster, ICraftingCPU {
     private final IConfigManager configManager;
     private Component myName = null;
     private boolean isDestroyed = false;
+    /**
+     * Set when this cluster's job and inventory moved to a new cluster formed over its blocks: destroying it must then
+     * neither cancel the job nor drop the inventory.
+     */
+    private boolean handedOver = false;
     private long storage = 0;
     private MachineSource machineSrc = null;
     private int accelerator = 0;
@@ -302,7 +310,45 @@ public final class CraftingCPUCluster implements IAECluster, ICraftingCPU {
         return (ServerLevel) this.getCore().getLevel();
     }
 
+    /**
+     * Called when {@code next} forms over blocks of this cluster while it is still intact. That happens when part of
+     * the multiblock was unloaded and loaded again (it straddles a chunk border and one chunk unloaded): the reloaded
+     * block entities form a new cluster. Breaking this one there cancelled the running job and dropped the CPU
+     * inventory (with the core in the reloaded part, the inventory was also restored from its saved data). Instead, the
+     * job and inventory move to the new cluster, the same way they are restored after a reload.
+     *
+     * @return false if the state can't be handed over (the core isn't part of {@code next}); the caller then breaks
+     *         this cluster as before.
+     */
+    public boolean handOverTo(CraftingCPUCluster next) {
+        var core = getCore();
+        if (this.isDestroyed || core == null || core.getLevel() == null
+                || !isWithin(core.getBlockPos(), next.getBoundsMin(), next.getBoundsMax())) {
+            return false;
+        }
+
+        if (!core.isRemoved()) {
+            var registries = core.getLevel().registryAccess();
+            var out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+            writeToNBT(out);
+            core.setPreviousState(TagValueInput.create(ProblemReporter.DISCARDING, registries, out.buildResult()));
+        }
+        // Otherwise the core was unloaded with its chunk, which saved this state, and the reloaded core restores it.
+
+        this.handedOver = true;
+        destroy();
+        return true;
+    }
+
+    private static boolean isWithin(BlockPos pos, BlockPos min, BlockPos max) {
+        return pos.getX() >= min.getX() && pos.getY() >= min.getY() && pos.getZ() >= min.getZ()
+                && pos.getX() <= max.getX() && pos.getY() <= max.getY() && pos.getZ() <= max.getZ();
+    }
+
     public void breakCluster() {
+        if (this.handedOver) {
+            return;
+        }
         final CraftingBlockEntity t = this.getCore();
 
         if (t != null) {

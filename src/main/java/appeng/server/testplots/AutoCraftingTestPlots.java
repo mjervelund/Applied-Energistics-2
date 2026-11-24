@@ -5,11 +5,15 @@ import java.util.List;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.level.storage.TagValueOutput;
 
 import appeng.api.config.Actionable;
 import appeng.api.config.Settings;
@@ -18,6 +22,7 @@ import appeng.api.crafting.PatternDetailsHelper;
 import appeng.api.stacks.AEFluidKey;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.GenericStack;
+import appeng.blockentity.crafting.CraftingBlockEntity;
 import appeng.blockentity.crafting.PatternProviderBlockEntity;
 import appeng.blockentity.misc.InscriberBlockEntity;
 import appeng.blockentity.storage.SkyStoneChestBlockEntity;
@@ -403,6 +408,95 @@ public final class AutoCraftingTestPlots {
                         helper.destroyBlock(new BlockPos(0, 0, -1));
                         // Fail if not exactly 1 diamond was spawned as item entities
                         helper.assertItemEntityCountIs(Items.DIAMOND, new BlockPos(0, 0, 0), 3, 1);
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    /**
+     * A crafting CPU with a running job is partly unloaded and loaded again (it straddles a chunk border and only one
+     * chunk unloads). The reloaded block re-forms the multiblock; the job and the CPU inventory must survive instead of
+     * the old cluster being broken (job cancelled, inventory dropped as items). Related to
+     * <a href="https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/8391">issue 8391</a>.
+     */
+    @TestPlot("crafting_cpu_keeps_job_after_partial_reload")
+    public static void craftingCpuKeepsJobAfterPartialReload(PlotBuilder plot) {
+        craftingCpuPartialReload(plot, false);
+    }
+
+    /**
+     * Same, but the reloaded part holds the core block, which restores the job from its saved data.
+     */
+    @TestPlot("crafting_cpu_keeps_job_after_core_reload")
+    public static void craftingCpuKeepsJobAfterCoreReload(PlotBuilder plot) {
+        craftingCpuPartialReload(plot, true);
+    }
+
+    private static void craftingCpuPartialReload(PlotBuilder plot, boolean reloadCore) {
+        var cpuA = new BlockPos(0, 0, 0);
+        var cpuB = new BlockPos(1, 0, 0);
+        plot.block(cpuA, AEBlocks.CRAFTING_STORAGE_1K);
+        plot.block(cpuB, AEBlocks.CRAFTING_UNIT);
+        plot.cable("0 0 -1");
+        // The provider has nothing to push into, so the job keeps the diamond in the CPU inventory
+        plot.blockEntity("0 0 -2", AEBlocks.PATTERN_PROVIDER, provider -> {
+            var pattern = PatternDetailsHelper.encodeProcessingPattern(
+                    List.of(GenericStack.fromItemStack(new ItemStack(Items.DIAMOND))),
+                    List.of(GenericStack.fromItemStack(new ItemStack(Items.STICK))));
+            provider.getLogic().getPatternInv().addItems(pattern);
+        });
+        {
+            var db = plot.drive(new BlockPos(0, 1, -1));
+            db.addItemCell64k().add(Items.DIAMOND, 1);
+        }
+        plot.creativeEnergyCell("0 -1 -1");
+
+        plot.test(helper -> {
+            var craftingJob = new TestCraftingJob(helper, BlockPos.ZERO, AEItemKey.of(Items.STICK), 1);
+            var saved = new CompoundTag[1];
+            var unloadedPos = new BlockPos[1];
+            helper.startSequence()
+                    .thenWaitUntil(craftingJob::tickUntilStarted)
+                    .thenIdle(2)
+                    .thenExecute(() -> {
+                        var a = helper.getBlockEntity(cpuA, CraftingBlockEntity.class);
+                        var cluster = a.getCluster();
+                        helper.check(cluster != null && cluster.isBusy(), "CPU has no job", cpuA);
+                        helper.check(cluster.craftingLogic.getInventory().extract(AEItemKey.of(Items.DIAMOND), 1,
+                                Actionable.SIMULATE) == 1, "diamond not in the CPU", cpuA);
+                        // "Unload" one block, like a chunk unload: onChunkUnloaded, remove the BE
+                        unloadedPos[0] = a.isCoreBlock() == reloadCore ? cpuA : cpuB;
+                        var level = helper.getLevel();
+                        var be = helper.getBlockEntity(unloadedPos[0], CraftingBlockEntity.class);
+                        var out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, level.registryAccess());
+                        be.saveWithId(out);
+                        saved[0] = out.buildResult();
+                        be.onChunkUnloaded();
+                        level.removeBlockEntity(helper.absolutePos(unloadedPos[0]));
+                    })
+                    .thenExecuteAfter(1, () -> {
+                        // "Load" it again from its saved data
+                        var level = helper.getLevel();
+                        var abs = helper.absolutePos(unloadedPos[0]);
+                        var loaded = BlockEntity.loadStatic(abs, level.getBlockState(abs), saved[0],
+                                level.registryAccess());
+                        helper.check(loaded != null, "could not load", unloadedPos[0]);
+                        level.setBlockEntity(loaded);
+                    })
+                    .thenIdle(5)
+                    .thenExecute(() -> {
+                        helper.assertItemEntityCountIs(Items.DIAMOND, cpuA, 4, 0);
+                        var cluster = helper.getBlockEntity(cpuA, CraftingBlockEntity.class).getCluster();
+                        helper.check(cluster != null, "CPU did not re-form", cpuA);
+                        helper.check(cluster == helper.getBlockEntity(cpuB, CraftingBlockEntity.class).getCluster(),
+                                "CPU blocks are in different clusters", cpuB);
+                        helper.check(cluster.isBusy(), "CPU lost its job after the reload", cpuA);
+                        var diamonds = cluster.craftingLogic.getInventory().extract(AEItemKey.of(Items.DIAMOND), 64,
+                                Actionable.SIMULATE);
+                        helper.check(diamonds == 1, "CPU holds " + diamonds + " diamonds instead of 1", cpuA);
+                        var grid = helper.getGrid(cpuA);
+                        var inStorage = grid.getStorageService().getCachedInventory().get(AEItemKey.of(Items.DIAMOND));
+                        helper.check(inStorage == 0, "network storage got " + inStorage + " diamonds back", cpuA);
                     })
                     .thenSucceed();
         });
