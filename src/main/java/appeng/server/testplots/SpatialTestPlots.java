@@ -6,8 +6,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ButtonBlock;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -158,6 +160,84 @@ public final class SpatialTestPlots {
                     })
                     .thenSucceed();
         });
+    }
+
+    /**
+     * Moving blocks with spatial I/O must update the heightmaps (rain, mob spawning) and the light of the affected
+     * area. Regression test for <a href="https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/6529">issue
+     * 6529</a> and <a href="https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/7600">issue 7600</a>.
+     */
+    @TestPlot("spatial_io_updates_heightmap_and_light")
+    public static void spatialIoUpdatesHeightmapAndLight(PlotBuilder plot) {
+        var glowstonePos = new BlockPos(1, 1, 1);
+        var roofPos = new BlockPos(2, 2, 2);
+        var ioPortPos = new BlockPos(-1, 0, 0);
+
+        plot.creativeEnergyCell("0 0 0");
+        // The pylons span 0..3, so the moved region is [1,2] on each axis
+        plot.block("[1,3] 0 0", AEBlocks.SPATIAL_PYLON);
+        plot.block("0 [1,3] 0", AEBlocks.SPATIAL_PYLON);
+        plot.block("0 0 [1,3]", AEBlocks.SPATIAL_PYLON);
+        plot.block(glowstonePos, Blocks.GLOWSTONE);
+        plot.block(roofPos, Blocks.STONE);
+        plot.blockEntity(ioPortPos, AEBlocks.SPATIAL_IO_PORT, port -> {
+            port.getInternalInventory().insertItem(0, AEItems.SPATIAL_CELL2.stack(), false);
+        });
+        var buttonPos = plot.buttonOn(ioPortPos, Direction.WEST);
+
+        plot.test(helper -> {
+            var level = helper.getLevel();
+            var absGlowstone = helper.absolutePos(glowstonePos);
+            helper.startSequence()
+                    .thenWaitUntil(() -> helper.check(
+                            level.getBrightness(LightLayer.BLOCK, absGlowstone) == 15,
+                            "glowstone not lit yet"))
+                    .thenExecute(() -> {
+                        // Open the test's barrier ceiling above the roof, so the roof is the top of its column
+                        for (var y = roofPos.getY() + 1; y <= roofPos.getY() + 8; y++) {
+                            var pos = roofPos.atY(y);
+                            if (helper.getBlockState(pos).is(Blocks.BARRIER)) {
+                                helper.setBlock(pos, Blocks.AIR);
+                            }
+                        }
+                        var height = level.getHeight(Heightmap.Types.MOTION_BLOCKING,
+                                helper.absolutePos(roofPos).getX(), helper.absolutePos(roofPos).getZ());
+                        helper.check(height == helper.absolutePos(roofPos).getY() + 1,
+                                "the roof should be the top of its column, heightmap " + height, roofPos);
+                    })
+                    .thenWaitUntil(helper::checkAllInitialized)
+                    .thenExecute(() -> helper.pressButton(buttonPos))
+                    .thenWaitUntil(() -> helper.assertBlockNotPresent(Blocks.GLOWSTONE, glowstonePos))
+                    .thenExecute(() -> {
+                        helper.assertBlockNotPresent(Blocks.STONE, roofPos);
+                        checkMotionBlockingHeightmap(helper, roofPos);
+                    })
+                    // The glowstone's light must go away (only the pylons' light, at most 8, remains)
+                    .thenWaitUntil(() -> {
+                        var light = level.getBrightness(LightLayer.BLOCK, absGlowstone);
+                        helper.check(light <= 8, "light of the moved glowstone stayed behind: " + light,
+                                glowstonePos);
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    /**
+     * Compares the MOTION_BLOCKING heightmap of a column with the actual top motion-blocking block.
+     */
+    private static void checkMotionBlockingHeightmap(PlotTestHelper helper, BlockPos relativePos) {
+        var level = helper.getLevel();
+        var pos = helper.absolutePos(relativePos);
+        var actual = level.getMinY();
+        for (var y = level.getMaxY(); y >= level.getMinY(); y--) {
+            if (Heightmap.Types.MOTION_BLOCKING.isOpaque().test(level.getBlockState(pos.atY(y)))) {
+                actual = y + 1;
+                break;
+            }
+        }
+        var height = level.getHeight(Heightmap.Types.MOTION_BLOCKING, pos.getX(), pos.getZ());
+        helper.check(height == actual, "MOTION_BLOCKING heightmap is " + height + " but the top block is at "
+                + (actual - 1) + " (" + level.getBlockState(pos.atY(height - 1)) + " at the heightmap)", relativePos);
     }
 
     private static ItemStack getCellFromSpatialIoPortOutput(PlotTestHelper helper, BlockPos ioPortPos) {
