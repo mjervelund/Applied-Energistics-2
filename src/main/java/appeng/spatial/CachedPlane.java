@@ -41,6 +41,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.lighting.LevelLightEngine;
+import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.ticks.LevelChunkTicks;
 import net.minecraft.world.ticks.ScheduledTick;
 
@@ -156,7 +157,7 @@ public class CachedPlane {
                                 new BlockEntityMoveRecord(strategy, blockEntity, savedData, pos, state));
 
                         // Set the state to AIR now since that prevents it from being resurrected recursively
-                        section.setBlockState(sx, sy, sz, Blocks.AIR.defaultBlockState());
+                        setBlockStateDirect(level, c, section, sx, pos.getY(), sz, Blocks.AIR.defaultBlockState());
                         c.removeBlockEntity(pos);
                     } else {
                         // don't skip air, just let the code replace it...
@@ -236,8 +237,8 @@ public class CachedPlane {
                                 dstState = Blocks.AIR.defaultBlockState();
                             }
 
-                            srcSection.setBlockState(srcCol.x, SectionPos.sectionRelative(src_y), srcCol.z, dstState);
-                            dstSection.setBlockState(dstCol.x, SectionPos.sectionRelative(dst_y), dstCol.z, srcState);
+                            setBlockStateDirect(this.level, srcCol.c, srcSection, srcCol.x, src_y, srcCol.z, dstState);
+                            setBlockStateDirect(dst.level, dstCol.c, dstSection, dstCol.x, dst_y, dstCol.z, srcState);
                         } else {
                             this.markForUpdate(this.x_offset + x, src_y, this.z_offset + z);
                             dst.markForUpdate(dst.x_offset + x, dst_y, dst.z_offset + z);
@@ -291,6 +292,44 @@ public class CachedPlane {
         }
     }
 
+    /**
+     * Writes a block state straight into a chunk section (no neighbor updates, no block entity handling), but keeps the
+     * chunk's heightmaps and the lighting up to date the same way {@link LevelChunk#setBlockState} does. Without this,
+     * rain and snow fell through moved-in blocks (or stopped above moved-out ones) and the light of moved blocks stayed
+     * behind.
+     *
+     * @param localX x within the chunk
+     * @param y      absolute y
+     * @param localZ z within the chunk
+     */
+    private static void setBlockStateDirect(ServerLevel level, LevelChunk chunk, LevelChunkSection section,
+            int localX, int y, int localZ, BlockState state) {
+        boolean wasEmpty = section.hasOnlyAir();
+        var oldState = section.setBlockState(localX, SectionPos.sectionRelative(y), localZ, state);
+        if (oldState == state) {
+            return;
+        }
+
+        for (var heightmap : chunk.getHeightmaps()) {
+            heightmap.getValue().update(localX, y, localZ, state);
+        }
+
+        var chunkPos = chunk.getPos();
+        var pos = new BlockPos(chunkPos.getBlockX(localX), y, chunkPos.getBlockZ(localZ));
+        var lightEngine = level.getChunkSource().getLightEngine();
+        boolean isEmpty = section.hasOnlyAir();
+        if (wasEmpty != isEmpty) {
+            lightEngine.updateSectionStatus(pos, isEmpty);
+            level.getChunkSource().onSectionEmptinessChanged(chunkPos.x(), SectionPos.blockToSectionCoord(y),
+                    chunkPos.z(), isEmpty);
+        }
+
+        if (LightEngine.hasDifferentLightProperties(chunk, pos, oldState, state)) {
+            chunk.getSkyLightSources().update(chunk, localX, y, localZ);
+            lightEngine.checkBlock(pos);
+        }
+    }
+
     private void markForUpdate(int x, int y, int z) {
         this.updates.add(new BlockPos(x, y, z));
         for (Direction d : Direction.values()) {
@@ -318,11 +357,11 @@ public class CachedPlane {
             var newPosition = new BlockPos(x + this.x_offset, y + this.y_offset, z + this.z_offset);
 
             // Restore original block state to the section directly. The chunk would create the BE and notify neighbors.
-            var chunk = this.level.getChunk(newPosition);
+            var chunk = this.level.getChunkAt(newPosition);
             var section = chunk.getSection(chunk.getSectionIndex(newPosition.getY()));
-            section.setBlockState(
+            setBlockStateDirect(this.level, chunk, section,
                     newPosition.getX() & (SectionPos.SECTION_SIZE - 1),
-                    newPosition.getY() & (SectionPos.SECTION_SIZE - 1),
+                    newPosition.getY(),
                     newPosition.getZ() & (SectionPos.SECTION_SIZE - 1),
                     moveRecord.state);
 
