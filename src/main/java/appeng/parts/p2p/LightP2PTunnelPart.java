@@ -118,10 +118,13 @@ public class LightP2PTunnelPart extends P2PTunnelPart<LightP2PTunnelPart> implem
 
     private int blockLight(int emit) {
         if (this.opacity == -1) {
+            // How much light the block in front of the output absorbs. This used to read the light level in front of
+            // the output, which includes sky light and the output's own light, and depends on whether lighting was
+            // already computed (e.g. after a reload), so the output dimmed or went dark.
             var be = getHost().getBlockEntity();
             var level = be.getLevel();
-            var pos = be.getBlockPos();
-            this.opacity = level.getMaxLocalRawBrightness(pos.relative(getSide()));
+            var frontPos = be.getBlockPos().relative(getSide());
+            this.opacity = level.getBlockState(frontPos).getLightDampening();
         }
 
         return Math.max(0, emit - opacity);
