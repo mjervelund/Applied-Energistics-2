@@ -370,4 +370,53 @@ public final class InternalInventoryTransactionTestPlots {
                     .thenSucceed();
         });
     }
+
+    /**
+     * Automation inserting into the ME chest's input side must only hand over what the cell can store. The rest used to
+     * stay in the input slot, which nothing can extract from, and blocked all further inserts. Regression test for
+     * <a href="https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/8301">issue 8301</a>.
+     */
+    @TestPlot("mechest_input_takes_only_what_the_cell_stores")
+    public static void testMEChestInputOnlyWhatFits(PlotBuilder plot) {
+        plot.creativeEnergyCell(BlockPos.ZERO.below());
+        plot.block(BlockPos.ZERO, AEBlocks.ME_CHEST);
+
+        plot.test(helper -> {
+            var stone = AEItemKey.of(Items.STONE);
+            helper.startSequence()
+                    .thenWaitUntil(() -> helper.check(
+                            helper.getBlockEntity(BlockPos.ZERO, MEChestBlockEntity.class).isPowered(),
+                            "chest not powered", BlockPos.ZERO))
+                    .thenExecute(() -> {
+                        var chest = helper.getBlockEntity(BlockPos.ZERO, MEChestBlockEntity.class);
+                        chest.setCell(AEItems.ITEM_CELL_1K.stack());
+
+                        // Fill the cell, then make room for exactly 10 stone
+                        var storage = chest.getInventory();
+                        storage.insert(stone, Integer.MAX_VALUE, Actionable.MODULATE, IActionSource.empty());
+                        helper.check(storage.insert(stone, 1, Actionable.SIMULATE, IActionSource.empty()) == 0,
+                                "cell should be full", BlockPos.ZERO);
+                        storage.extract(stone, 10, Actionable.MODULATE, IActionSource.empty());
+                        var stored = storage.getAvailableStacks().get(stone);
+
+                        var handler = chest.getExposedItemHandler(chest.getFront().getOpposite());
+                        int inserted;
+                        try (var tx = Transaction.open(null)) {
+                            inserted = handler.insert(ItemResource.of(Items.STONE), 64, tx);
+                            tx.commit();
+                        }
+
+                        var inputSlot = chest.getInternalInventory().getStackInSlot(0);
+                        helper.check(inputSlot.isEmpty(),
+                                "items the cell can't store are stuck in the input slot: " + inputSlot, BlockPos.ZERO);
+                        var storedAfter = storage.getAvailableStacks().get(stone);
+                        helper.check(inserted == storedAfter - stored,
+                                "the chest took " + inserted + " stone but the cell stored " + (storedAfter - stored),
+                                BlockPos.ZERO);
+                        helper.check(inserted > 0, "the chest should take the stone the cell has room for",
+                                BlockPos.ZERO);
+                    })
+                    .thenSucceed();
+        });
+    }
 }
