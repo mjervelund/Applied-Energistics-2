@@ -12,6 +12,7 @@ import net.neoforged.neoforge.transfer.fluid.FluidResource;
 import net.neoforged.neoforge.transfer.item.ItemResource;
 import net.neoforged.neoforge.transfer.resource.Resource;
 import net.neoforged.neoforge.transfer.transaction.Transaction;
+import net.neoforged.neoforge.transfer.transaction.TransactionContext;
 
 import appeng.api.config.Actionable;
 import appeng.api.networking.security.IActionSource;
@@ -83,6 +84,24 @@ public abstract class ExternalStorageFacade implements MEStorage {
 
     protected abstract int insertExternal(AEKey what, int amount, Actionable mode);
 
+    /**
+     * Inserts as part of the given transaction, so several inserts can be checked together: each one sees the space the
+     * previous ones took. Nothing is applied unless the transaction is committed, and the change listener is not
+     * notified.
+     *
+     * @throws UnsupportedOperationException if {@link #supportsTransactionalInsert()} is false.
+     */
+    public long insert(AEKey what, long amount, TransactionContext transaction) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @return whether {@link #insert(AEKey, long, TransactionContext)} is supported.
+     */
+    public boolean supportsTransactionalInsert() {
+        return false;
+    }
+
     protected abstract int extractExternal(AEKey what, int amount, Actionable mode);
 
     public abstract boolean containsAnyFuzzy(Set<AEKey> keys);
@@ -133,6 +152,20 @@ public abstract class ExternalStorageFacade implements MEStorage {
                 }
                 return inserted;
             }
+        }
+
+        @Override
+        public boolean supportsTransactionalInsert() {
+            return true;
+        }
+
+        @Override
+        public long insert(AEKey what, long amount, TransactionContext transaction) {
+            var resource = toResource(what);
+            if (resource == null) {
+                return 0;
+            }
+            return handler.insert(resource, Ints.saturatedCast(amount), transaction);
         }
 
         @Override

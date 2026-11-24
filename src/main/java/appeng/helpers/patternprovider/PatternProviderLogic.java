@@ -359,7 +359,7 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
                 continue;
             }
 
-            if (this.adapterAcceptsAll(adapter, inputHolder)) {
+            if (adapter.acceptsAll(inputHolder)) {
                 patternDetails.pushInputsToExternalInventory(inputHolder, (what, amount) -> {
                     var inserted = adapter.insert(what, amount, Actionable.MODULATE);
                     if (inserted < amount) {
@@ -481,18 +481,6 @@ public class PatternProviderLogic implements InternalInventoryHost, ICraftingPro
     @Nullable
     private PatternProviderTarget findAdapter(Direction side) {
         return getTargetCache(side).find();
-    }
-
-    private boolean adapterAcceptsAll(PatternProviderTarget target, KeyCounter[] inputHolder) {
-        for (var inputList : inputHolder) {
-            for (var input : inputList) {
-                var inserted = target.insert(input.getKey(), input.getLongValue(), Actionable.SIMULATE);
-                if (inserted == 0) {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
 
     private void addToSendList(AEKey what, long amount) {
