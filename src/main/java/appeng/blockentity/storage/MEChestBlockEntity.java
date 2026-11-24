@@ -99,7 +99,27 @@ public class MEChestBlockEntity extends AENetworkedPoweredBlockEntity
 
     private static final Logger LOG = LoggerFactory.getLogger(MEChestBlockEntity.class);
 
-    private final AppEngInternalInventory inputInventory = new AppEngInternalInventory(this, 1);
+    /**
+     * Only takes as many items as the cell can store right now. Items the cell refuses would otherwise stay in the
+     * input slot, which can't be extracted from, and block every other insert.
+     */
+    private final AppEngInternalInventory inputInventory = new AppEngInternalInventory(this, 1) {
+        @Override
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+            if (stack.isEmpty()) {
+                return stack;
+            }
+            var accepted = getInputAcceptedByCell(getStackInSlot(slot), stack);
+            if (accepted <= 0) {
+                return stack;
+            }
+            if (accepted >= stack.getCount()) {
+                return super.insertItem(slot, stack, simulate);
+            }
+            var overflow = super.insertItem(slot, stack.copyWithCount(accepted), simulate);
+            return stack.copyWithCount(stack.getCount() - accepted + overflow.getCount());
+        }
+    };
     private final AppEngInternalInventory cellInventory = new AppEngInternalInventory(this, 1);
     private final InternalInventory internalInventory = new CombinedInternalInventory(this.inputInventory,
             this.cellInventory);
@@ -681,6 +701,26 @@ public class MEChestBlockEntity extends AENetworkedPoweredBlockEntity
             }
             return 0;
         }
+    }
+
+    /**
+     * @return How many of {@code stack} the cell would accept on top of what is already waiting in the input slot.
+     */
+    private int getInputAcceptedByCell(ItemStack inSlot, ItemStack stack) {
+        if (!isPowered()) {
+            return 0;
+        }
+        updateHandler();
+        if (cellHandler == null) {
+            return 0;
+        }
+        var what = AEItemKey.of(stack);
+        if (what == null) {
+            return 0;
+        }
+        var waiting = ItemStack.isSameItemSameComponents(inSlot, stack) ? inSlot.getCount() : 0;
+        var accepted = cellHandler.insert(what, waiting + stack.getCount(), Actionable.SIMULATE, mySrc) - waiting;
+        return (int) Math.max(0, Math.min(accepted, stack.getCount()));
     }
 
     private class InputInventoryFilter implements IAEItemFilter {
