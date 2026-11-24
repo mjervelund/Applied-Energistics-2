@@ -36,6 +36,7 @@ import appeng.api.config.Actionable;
 import appeng.api.networking.security.IActionSource;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.AEKeyType;
+import appeng.api.stacks.KeyCounter;
 import appeng.api.storage.MEStorage;
 import appeng.me.storage.CompositeStorage;
 import appeng.parts.automation.StackWorldBehaviors;
@@ -97,6 +98,21 @@ public interface PatternProviderTarget {
     }
 
     long insert(AEKey what, long amount, Actionable type);
+
+    /**
+     * @return true if the target accepts at least part of every input of a pattern (the rest is sent later).
+     */
+    default boolean acceptsAll(KeyCounter[] inputHolder) {
+        for (var inputList : inputHolder) {
+            for (var input : inputList) {
+                var inserted = insert(input.getKey(), input.getLongValue(), Actionable.SIMULATE);
+                if (inserted == 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
     boolean containsPatternInput(Set<AEKey> patternInputs);
 }
