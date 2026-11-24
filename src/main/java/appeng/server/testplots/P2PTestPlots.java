@@ -162,6 +162,45 @@ public class P2PTestPlots {
     }
 
     /**
+     * The output of a light P2P tunnel emits the light level seen by the input, independent of the light that is
+     * currently around the output (sky light, its own light). That light used to be subtracted from the output's
+     * emission, so the output went dark or dim after a reload or a neighbor update. Regression test for
+     * <a href="https://github.com/AppliedEnergistics/Applied-Energistics-2/issues/7936">issue 7936</a>.
+     */
+    @TestPlot("p2p_light_output_matches_input")
+    public static void lightOutputMatchesInput(PlotBuilder plot) {
+        var origin = BlockPos.ZERO;
+        placeTunnel(plot, AEParts.LIGHT_P2P_TUNNEL);
+        plot.block(origin.west().west(), Blocks.GLOWSTONE);
+        // The block in front of the output tunnel
+        var outputPos = origin.east().east();
+        plot.block(outputPos, Blocks.AIR);
+        plot.test(helper -> {
+            var level = helper.getLevel();
+            var absOutput = helper.absolutePos(outputPos);
+            helper.startSequence()
+                    // The output emits 15 (like the glowstone), so the block in front of it gets 14
+                    .thenWaitUntil(() -> {
+                        var light = level.getBrightness(LightLayer.BLOCK, absOutput);
+                        helper.check(light == 14, "expected block light 14 in front of the output, got " + light,
+                                outputPos);
+                    })
+                    // A shape update in front of the output (what happens after a reload) must not change it
+                    .thenExecute(() -> helper.setBlock(outputPos, Blocks.STONE))
+                    .thenIdle(5)
+                    .thenExecute(() -> helper.setBlock(outputPos, Blocks.AIR))
+                    .thenIdle(20)
+                    .thenExecute(() -> {
+                        var light = level.getBrightness(LightLayer.BLOCK, absOutput);
+                        helper.check(light == 14,
+                                "expected block light 14 in front of the output after a neighbor update, got " + light,
+                                outputPos);
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    /**
      * Tests that when a P2P tunnel is allocated/unallocated a channel, it connects/disconnects correctly.
      */
     @TestPlot("p2p_channel_reconnect_behavior")
