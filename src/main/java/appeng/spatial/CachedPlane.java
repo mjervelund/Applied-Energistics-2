@@ -301,9 +301,10 @@ public class CachedPlane {
     /**
      * Writes a block state straight into a chunk section (no neighbor updates, no block entity handling). The chunk's
      * heightmaps, section emptiness, sky light sources and light checks are brought up to date the same way
-     * {@link LevelChunk#setBlockState} does, but only once per chunk in {@link #applyPendingChunkChanges()} at the end
-     * of the move instead of per block: a 128³ swap writes millions of blocks. Without these updates, rain and snow
-     * fell through moved-in blocks (or stopped above moved-out ones) and the light of moved blocks stayed behind.
+     * {@link LevelChunk#setBlockState} does, but heightmaps, sky light sources and light checks only once per chunk in
+     * {@link #applyPendingChunkChanges()} at the end of the move instead of per block: a 128³ swap writes millions of
+     * blocks. Without these updates, rain and snow fell through moved-in blocks (or stopped above moved-out ones) and
+     * the light of moved blocks stayed behind.
      *
      * @param localX x within the chunk
      * @param y      absolute y
@@ -311,17 +312,27 @@ public class CachedPlane {
      */
     private void setBlockStateDirect(LevelChunk chunk, LevelChunkSection section, int localX, int y, int localZ,
             BlockState state) {
-        var changes = getChunkChanges(chunk);
-        int sectionIndex = chunk.getSectionIndex(y);
-        changes.rememberSectionEmptiness(sectionIndex, section);
-
+        boolean wasEmpty = section.hasOnlyAir();
         var oldState = section.setBlockState(localX, SectionPos.sectionRelative(y), localZ, state);
         if (oldState == state) {
             return;
         }
 
+        var changes = getChunkChanges(chunk);
+        var chunkPos = chunk.getPos();
+        var pos = changes.scratchPos.set(chunkPos.getBlockX(localX), y, chunkPos.getBlockZ(localZ));
+
+        // Report emptiness changes right away (rare, once per section): the light engine may still be working on this
+        // area, and propagating into a section that has blocks but no light data fails with "layer is null".
+        boolean isEmpty = section.hasOnlyAir();
+        if (wasEmpty != isEmpty) {
+            var chunkSource = this.level.getChunkSource();
+            chunkSource.getLightEngine().updateSectionStatus(pos, isEmpty);
+            chunkSource.onSectionEmptinessChanged(chunkPos.x(), SectionPos.blockToSectionCoord(y), chunkPos.z(),
+                    isEmpty);
+        }
+
         changes.columnChanged(localX, y, localZ);
-        var pos = changes.scratchPos.set(chunk.getPos().getBlockX(localX), y, chunk.getPos().getBlockZ(localZ));
         if (LightEngine.hasDifferentLightProperties(chunk, pos, oldState, state)) {
             changes.lightChecks.add(pos.asLong());
         }
@@ -338,8 +349,8 @@ public class CachedPlane {
     }
 
     /**
-     * Applies what {@link #setBlockStateDirect} deferred: section emptiness, heightmaps of the changed columns, sky
-     * light sources, and one light task per chunk that checks every position whose light properties changed.
+     * Applies what {@link #setBlockStateDirect} deferred: heightmaps of the changed columns, sky light sources, and one
+     * light task per chunk that checks every position whose light properties changed.
      */
     private void applyPendingChunkChanges() {
         var chunkSource = this.level.getChunkSource();
@@ -347,19 +358,6 @@ public class CachedPlane {
         for (var changes : this.chunkChanges.values()) {
             var chunk = changes.chunk;
             var chunkPos = chunk.getPos();
-
-            for (int i = 0; i < changes.sectionWasEmpty.length; i++) {
-                var wasEmpty = changes.sectionWasEmpty[i];
-                if (wasEmpty == null) {
-                    continue;
-                }
-                boolean isEmpty = chunk.getSection(i).hasOnlyAir();
-                if (wasEmpty != isEmpty) {
-                    int sectionY = chunk.getSectionYFromSectionIndex(i);
-                    lightEngine.updateSectionStatus(SectionPos.of(chunkPos, sectionY), isEmpty);
-                    chunkSource.onSectionEmptinessChanged(chunkPos.x(), sectionY, chunkPos.z(), isEmpty);
-                }
-            }
 
             if (changes.maxChangedY != Integer.MIN_VALUE) {
                 updateHeightmaps(changes);
@@ -421,8 +419,6 @@ public class CachedPlane {
      */
     private static class ChunkChanges {
         private final LevelChunk chunk;
-        /** Emptiness of each touched section before the first write, null if untouched. */
-        private final Boolean[] sectionWasEmpty;
         /** Changed columns, index x + z * 16. */
         private final BitSet changedColumns = new BitSet(256);
         private int maxChangedY = Integer.MIN_VALUE;
@@ -431,13 +427,6 @@ public class CachedPlane {
 
         ChunkChanges(LevelChunk chunk) {
             this.chunk = chunk;
-            this.sectionWasEmpty = new Boolean[chunk.getSectionsCount()];
-        }
-
-        void rememberSectionEmptiness(int sectionIndex, LevelChunkSection section) {
-            if (this.sectionWasEmpty[sectionIndex] == null) {
-                this.sectionWasEmpty[sectionIndex] = section.hasOnlyAir();
-            }
         }
 
         void columnChanged(int localX, int y, int localZ) {
